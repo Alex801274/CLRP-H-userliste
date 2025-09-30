@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gemeinsame Tabelle mit Login</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 20px;
+      background: #f4f4f9;
+    }
+    h1 {
+      text-align: center;
+    }
+    #login {
+      display: flex;
+      justify-content: center;
+      margin-bottom: 20px;
+    }
+    #users {
+      margin: 10px 0;
+      padding: 10px;
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    }
+    #users span {
+      display: inline-block;
+      margin-right: 10px;
+      padding: 5px 10px;
+      border-radius: 8px;
+      color: white;
+      font-weight: bold;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 15px;
+      background: white;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    }
+    th, td {
+      border: 1px solid #ddd;
+      padding: 10px;
+      text-align: left;
+    }
+    th {
+      background: #3498db;
+      color: white;
+    }
+    td input {
+      width: 100%;
+      border: none;
+      padding: 5px;
+      font-size: 14px;
+      outline: none;
+    }
+  </style>
+  <!-- Firebase einbinden -->
+  <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-auth.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-database.js"></script>
+</head>
+<body>
+  <h1>Gemeinsame Tabelle</h1>
+  <div id="login">
+    <button id="loginBtn">Mit Google anmelden</button>
+    <button id="logoutBtn" style="display:none;">Abmelden</button>
+  </div>
+
+  <div id="users"><strong>Aktive Benutzer:</strong></div>
+
+  <table id="dataTable">
+    <thead>
+      <tr>
+        <th>Nr.</th>
+        <th>Name</th>
+        <th>Aufgabe</th>
+        <th>Status</th>
+      </tr>
+    </thead>
+    <tbody id="tableBody"></tbody>
+  </table>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-app.js";
+    import { getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged } 
+      from "https://www.gstatic.com/firebasejs/9.6.1/firebase-auth.js";
+    import { getDatabase, ref, set, onValue, onDisconnect } 
+      from "https://www.gstatic.com/firebasejs/9.6.1/firebase-database.js";
+
+    // Firebase Konfiguration (ersetze durch deine Daten!)
+    const firebaseConfig = {
+      apiKey: "DEIN_API_KEY",
+      authDomain: "DEIN_PROJECT.firebaseapp.com",
+      databaseURL: "https://DEIN_PROJECT.firebaseio.com",
+      projectId: "DEIN_PROJECT",
+      storageBucket: "DEIN_PROJECT.appspot.com",
+      messagingSenderId: "DEINE_ID",
+      appId: "DEINE_APP_ID"
+    };
+
+    // Firebase initialisieren
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+    const auth = getAuth();
+
+    const loginBtn = document.getElementById("loginBtn");
+    const logoutBtn = document.getElementById("logoutBtn");
+    const usersDiv = document.getElementById("users");
+    const tableBody = document.getElementById("tableBody");
+
+    const colors = ["#e74c3c","#3498db","#2ecc71","#f39c12","#9b59b6","#1abc9c"];
+    let myColor = "#000";
+    let currentUser = null;
+
+    // Beispiel: 5 leere Zeilen
+    const rows = 5;
+
+    // Login
+    loginBtn.onclick = async () => {
+      const provider = new GoogleAuthProvider();
+      await signInWithPopup(auth, provider);
+    };
+
+    // Logout
+    logoutBtn.onclick = () => {
+      signOut(auth);
+    };
+
+    // Auth-Status beobachten
+    onAuthStateChanged(auth, (user) => {
+      if (user) {
+        currentUser = user;
+        myColor = colors[Math.floor(Math.random() * colors.length)];
+        loginBtn.style.display = "none";
+        logoutBtn.style.display = "block";
+
+        // Benutzer registrieren
+        const userRef = ref(db, "users/" + user.uid);
+        set(userRef, { name: user.displayName, color: myColor });
+        onDisconnect(userRef).remove();
+      } else {
+        currentUser = null;
+        loginBtn.style.display = "block";
+        logoutBtn.style.display = "none";
+      }
+    });
+
+    // Tabelle aufbauen
+    function renderTable(data) {
+      tableBody.innerHTML = "";
+      for (let i = 0; i < rows; i++) {
+        const tr = document.createElement("tr");
+
+        const tdNr = document.createElement("td");
+        tdNr.textContent = i + 1;
+        tr.appendChild(tdNr);
+
+        ["name", "task", "status"].forEach((field) => {
+          const td = document.createElement("td");
+          const input = document.createElement("input");
+          input.value = data && data[i] && data[i][field] ? data[i][field] : "";
+          input.disabled = !currentUser;
+          input.oninput = () => {
+            if (currentUser) {
+              set(ref(db, "table/" + i + "/" + field), input.value);
+            }
+          };
+          td.appendChild(input);
+          tr.appendChild(td);
+        });
+
+        tableBody.appendChild(tr);
+      }
+    }
+
+    // Tabelle live synchronisieren
+    const tableRef = ref(db, "table");
+    onValue(tableRef, (snapshot) => {
+      renderTable(snapshot.val());
+    });
+
+    // Benutzerliste aktualisieren
+    const usersRef = ref(db, "users");
+    onValue(usersRef, (snapshot) => {
+      usersDiv.innerHTML = "<strong>Aktive Benutzer:</strong> ";
+      const users = snapshot.val();
+      if (users) {
+        Object.values(users).forEach(u => {
+          const span = document.createElement("span");
+          span.style.background = u.color;
+          span.textContent = u.name;
+          usersDiv.appendChild(span);
+        });
+      }
+    });
+  </script>
+</body>
+</html>
